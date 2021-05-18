@@ -245,6 +245,8 @@ enum sr_mq {
 	SR_MQ_ENERGY,
 	/** Electric charge. */
 	SR_MQ_ELECTRIC_CHARGE,
+	/** N-Port parameter set. */
+	SR_MQ_N_PORT_PARAMETER,
 
 	/* Update sr_key_info_mq[] (hwdriver.c) upon changes! */
 };
