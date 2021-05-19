@@ -405,6 +405,13 @@ enum sr_mqflag {
 	SR_MQFLAG_UNSTABLE = 0x100000,
 	/** Measurement is four wire (e.g. Kelvin connection). */
 	SR_MQFLAG_FOUR_WIRE = 0x200000,
+	/** Measured parameters are S, Z, Y, G or H parameters */
+	SR_MQFLAG_N_PORT_S_PARAMETER = 0x400000,
+	SR_MQFLAG_N_PORT_Z_PARAMETER = 0x800000,
+	SR_MQFLAG_N_PORT_Y_PARAMETER = 0x1000000,
+	SR_MQFLAG_TWO_PORT_G_PARAMETER = 0x2000000,
+	SR_MQFLAG_TWO_PORT_H_PARAMETER = 0x4000000,
+	SR_MQFLAG_TWO_PORT_NOISE_DATA  = 0x8000000,
 
 	/*
 	 * Update mq_strings[] (analog.c) and fancyprint() (output/analog.c)

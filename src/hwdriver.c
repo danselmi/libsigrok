@@ -340,6 +340,12 @@ static struct sr_key_info sr_key_info_mqflag[] = {
 	{SR_MQFLAG_REFERENCE, 0, "reference", "Reference", NULL},
 	{SR_MQFLAG_UNSTABLE, 0, "unstable", "Unstable", NULL},
 	{SR_MQFLAG_FOUR_WIRE, 0, "four_wire", "4-Wire", NULL},
+	{SR_MQFLAG_N_PORT_S_PARAMETER, 0, "s_params", "S-Parameters", NULL},
+	{SR_MQFLAG_N_PORT_Z_PARAMETER, 0, "z_params", "Z-Parameters", NULL},
+	{SR_MQFLAG_N_PORT_Y_PARAMETER, 0, "y_params", "Y-Parameters", NULL},
+	{SR_MQFLAG_TWO_PORT_G_PARAMETER, 0, "g_params", "G-Parameters", NULL},
+	{SR_MQFLAG_TWO_PORT_H_PARAMETER, 0, "h_params", "H-Parameters", NULL},
+	{SR_MQFLAG_TWO_PORT_NOISE_DATA, 0, "noise_data", "Noise Data", NULL},
 	ALL_ZERO
 };
 

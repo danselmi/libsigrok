@@ -30,21 +30,20 @@
 #include "libsigrok-internal.h"
 
 #define LOG_PREFIX "input/touchstone"
-#define MAX_VALS_PER_LINE 9 /* freq + 4 complex entries */
 #define INITIAL_DATA_SET_SIZE 512
 
-enum ol_parameter_kind {
-	OL_SCATTERING_PARAMETERS, /* S */
-	OL_ADMITTANCE_PARAMETERS, /* Y */
-	OL_IMPEDANCE_PARAMETERS,  /* Z */
-	OL_HYBRID_H_PARAMETERS,   /* H */
-	OL_HYBRID_G_PARAMETERS,   /* G */
+enum parameter_kinds {
+	KIND_SCATTERING_PARAMETERS = SR_MQFLAG_N_PORT_S_PARAMETER,
+	KIND_IMPEDANCE_PARAMETERS  = SR_MQFLAG_N_PORT_Z_PARAMETER,
+	KIND_ADMITTANCE_PARAMETERS = SR_MQFLAG_N_PORT_Y_PARAMETER,
+	KIND_HYBRID_G_PARAMETERS   = SR_MQFLAG_TWO_PORT_G_PARAMETER,
+	KIND_HYBRID_H_PARAMETERS   = SR_MQFLAG_TWO_PORT_H_PARAMETER,
 };
 
 enum number_formats {
-	OL_DB_ANGLE,        /* DB */
-	OL_MAGNITUDE_ANGLE, /* MA */
-	OL_REAL_IMAGINARY,  /* RI */
+	FORMAT_DB_ANGLE,        /* DB */
+	FORMAT_MAGNITUDE_ANGLE, /* MA */
+	FORMAT_REAL_IMAGINARY,  /* RI */
 };
 
 enum parser_states {
@@ -85,7 +84,6 @@ struct context {
 	size_t num_references_found;
 	size_t num_vals_per_set;
 	uint8_t file_version;
-	//uint8_t vals_detected;
 	gboolean started;
 
 	double *data_set;
@@ -138,6 +136,11 @@ static void convdba(double *a)
 	convma(a);
 }
 
+static void confNF2F(double *a)
+{
+	*a = pow(10.0, *a / 10.0);
+}
+
 static void swap(double *a, double *b)
 {
 	double t = *a;
@@ -183,7 +186,6 @@ static int format_match(GHashTable *metadata, unsigned int *confidence)
 	const char *fn;
 	size_t i;
 	GString *buf;
-	//const char *comment_leader = "!";
 
 	fn = g_hash_table_lookup(metadata, GINT_TO_POINTER(SR_INPUT_META_FILENAME));
 	buf = g_hash_table_lookup(metadata, GINT_TO_POINTER(SR_INPUT_META_HEADER));
@@ -200,7 +202,7 @@ static int format_match(GHashTable *metadata, unsigned int *confidence)
 
 	if (!buf || !buf->len || !buf->str || !*buf->str)
 		return SR_ERR;
-	// check for option line or keayword
+	//TODO: check for option line or version keyword
 
 	return SR_ERR;
 }
@@ -232,8 +234,8 @@ static void init_context(struct context *inc, GSList *channels)
 	inc->encoding.scale.q = 1;
 
 	inc->meaning.channels = channels;
-
-	///TODO: inc->spec.spec_digits = 0;
+	/// TODO:
+	inc->spec.spec_digits = 0;
 }
 
 static int init(struct sr_input *in, GHashTable *options)
@@ -298,47 +300,87 @@ static int parse_option_line(struct context *inc, char *option_line)
 	if (ptr) {
 		--ptr; // we always have at least a ' ' in front
 		switch (*ptr) {
-		case 'K': inc->frequency_unit = 1e3; break;
-		case 'M': inc->frequency_unit = 1e6; break;
-		case 'G': inc->frequency_unit = 1e9; break;
+		case 'K':
+			inc->frequency_unit = 1000.0;
+			sr_spew("option line using kHz");
+			break;
+		case 'M':
+			inc->frequency_unit = 1e6;
+			sr_spew("option line using MHz");
+			break;
+		case 'G':
+			inc->frequency_unit = 1e9;
+			sr_spew("option line using GHz");
+			break;
+		case ' ':
+			inc->frequency_unit = 1.0;
+			sr_spew("option line using Hz");
+			break;
 		/* no valid si unit prefix found */
-		default:  inc->frequency_unit = 1.0; break;
+		default:
+			sr_err("option line no known unit prefix found: '%s'", line->str);
+			return SR_ERR;
 		}
 	}
-	else
+	else {
+		sr_spew("option line using default frequency");
 		inc->frequency_unit = 1e9;
+	}
 
-	if (g_strstr_len(line->str, -1, " DB "))
-		inc->number_format = OL_DB_ANGLE;
-	else if (g_strstr_len(line->str, -1, " MA "))
-		inc->number_format = OL_MAGNITUDE_ANGLE;
-	else if (g_strstr_len(line->str, -1, " RI "))
-		inc->number_format = OL_REAL_IMAGINARY;
-	else
-		inc->number_format = OL_MAGNITUDE_ANGLE;
+	if (g_strstr_len(line->str, -1, " DB ")) {
+		sr_spew("found option line data format: dB & angle");
+		inc->number_format = FORMAT_DB_ANGLE;
+	}
+	else if (g_strstr_len(line->str, -1, " MA ")) {
+		sr_spew("found option line data format: magnitude & angle");
+		inc->number_format = FORMAT_MAGNITUDE_ANGLE;
+	}
+	else if (g_strstr_len(line->str, -1, " RI ")) {
+		sr_spew("found option line data format: real & imaginary");
+		inc->number_format = FORMAT_REAL_IMAGINARY;
+	}
+	else {
+		sr_spew("using default data format dB & angle");
+		inc->number_format = FORMAT_MAGNITUDE_ANGLE;
+	}
 
-	if (g_strstr_len(line->str, -1, " S "))
-		inc->parameter_kind = OL_SCATTERING_PARAMETERS;
-	else if (g_strstr_len(line->str, -1, " Y "))
-		inc->parameter_kind = OL_ADMITTANCE_PARAMETERS;
-	else if (g_strstr_len(line->str, -1, " Z "))
-		inc->parameter_kind = OL_IMPEDANCE_PARAMETERS;
-	else if (g_strstr_len(line->str, -1, " G "))
-		inc->parameter_kind = OL_HYBRID_G_PARAMETERS;
-	else if (g_strstr_len(line->str, -1, " H "))
-		inc->parameter_kind = OL_HYBRID_H_PARAMETERS;
-	else
-		inc->parameter_kind = OL_SCATTERING_PARAMETERS;
-
+	if (g_strstr_len(line->str, -1, " S ")) {
+		sr_spew("found option line for scattering parameters");
+		inc->parameter_kind = KIND_SCATTERING_PARAMETERS;
+	}
+	else if (g_strstr_len(line->str, -1, " Y ")) {
+		sr_spew("found option line for admittance parameters");
+		inc->parameter_kind = KIND_ADMITTANCE_PARAMETERS;
+	}
+	else if (g_strstr_len(line->str, -1, " Z ")) {
+		sr_spew("found option line for impedance parameters");
+		inc->parameter_kind = KIND_IMPEDANCE_PARAMETERS;
+	}
+	else if (g_strstr_len(line->str, -1, " G ")) {
+		sr_spew("found option line for hybrid G parameters");
+		inc->parameter_kind = KIND_HYBRID_G_PARAMETERS;
+	}
+	else if (g_strstr_len(line->str, -1, " H ")) {
+		sr_spew("found option line for hybrid H parameters");
+		inc->parameter_kind = KIND_HYBRID_H_PARAMETERS;
+	}
+	else {
+		sr_spew("using default parameter kind: scattering parameters");
+		inc->parameter_kind = KIND_SCATTERING_PARAMETERS;
+	}
 
 	ptr = g_strstr_len(line->str, -1, " R ");
 	if (ptr) {
 		ptr += 3;
 		g_strchug(ptr);
 		ret = sr_atod(ptr, &inc->reference_resistance);
+		sr_spew("option line found reference resistance: %f",
+				inc->reference_resistance);
 	}
-	else
+	else {
+		sr_spew("using default reference resistance: 50");
 		inc->reference_resistance = 50.0;
+	}
 
 	g_string_free(line, TRUE);
 
@@ -383,13 +425,8 @@ static int send_reference_information(struct sr_input *in)
 {
 	struct context *inc = in->priv;
 	size_t idx;
-	/*  version 2 has no reference for other than s parameters */
 
 	sr_spew("sending reference resistance information");
-
-	if (inc->file_version > 1 &&
-			inc->parameter_kind != OL_SCATTERING_PARAMETERS)
-		return SR_OK;
 
 	inc->meaning.mq = SR_MQ_RESISTANCE;
 	inc->meaning.unit = SR_UNIT_OHM;
@@ -403,6 +440,13 @@ static int send_reference_information(struct sr_input *in)
 			inc->reference_resistances[idx] = inc->reference_resistance;
 	}
 
+	/*  version 2 has "no" reference for other than s parameters */
+	if (inc->file_version > 1 &&
+			inc->parameter_kind != KIND_SCATTERING_PARAMETERS) {
+		for (idx = 0; idx < inc->num_ports ; ++idx)
+			inc->reference_resistances[idx] = 1.0;
+	}
+
 	inc->analog.data = inc->reference_resistances;
 	inc->analog.num_samples = inc->num_ports;
 
@@ -413,6 +457,9 @@ static int send_sweep_information(struct sr_input *in)
 {
 	struct context *inc = in->priv;
 	int ret;
+
+	if (inc->sweep_count == 0)
+		return SR_OK;
 
 	inc->meaning.mq = SR_MQ_FREQUENCY;
 	inc->meaning.unit = SR_UNIT_HERTZ;
@@ -425,12 +472,17 @@ static int send_sweep_information(struct sr_input *in)
 		return ret;
 
 	inc->meaning.mq = SR_MQ_N_PORT_PARAMETER;
+	/** we send the reference resistance so this is unit less */
 	inc->meaning.unit = SR_UNIT_UNITLESS;
-	inc->meaning.mqflags = 0;
+	inc->meaning.mqflags = (inc->state == PS_NOISE_DATA) ?
+			SR_MQFLAG_TWO_PORT_NOISE_DATA : inc->parameter_kind;
 
 	inc->analog.data = inc->sweep_data;
 	inc->analog.num_samples = inc->sweep_count *
-			inc->num_ports * inc->num_ports * 2;
+			((inc->state == PS_NOISE_DATA) ? 5 :
+			  inc->num_ports * inc->num_ports * 2);
+
+	inc->sweep_count = 0;
 
 	if ((ret = sr_session_send(in->sdi, &inc->packet)) != SR_OK)
 		return ret;
@@ -474,6 +526,8 @@ static int add_data_to_set(struct context *inc, double *vals, size_t n)
 	if ((ret = prepare_data_set_memory(inc, n)) != SR_OK)
 		return ret;
 
+	sr_spew("adding data to set");
+
 	memcpy(inc->data_set + inc->data_set_count, vals, n*sizeof(double));
 	inc->data_set_count += n;
 	return SR_OK;
@@ -482,9 +536,10 @@ static int add_data_to_set(struct context *inc, double *vals, size_t n)
 static int prepare_sweep_mem(struct context *inc)
 {
 	size_t sweep_points;
-	const size_t data_set_entries = inc->num_ports * inc->num_ports * 2;
+	const size_t data_set_entries = (inc->state == PS_NOISE_DATA) ? 5 :
+			(inc->num_ports * inc->num_ports * 2);
 
-	if (inc->sweep_count == 0) {
+	if (inc->sweep_size == 0) {
 		if (inc->file_version > 1 && inc->sweep_points > 0)
 			sweep_points = inc->sweep_points;
 		else
@@ -526,64 +581,80 @@ static int move_data_to_sweep(struct context *inc)
 {
 	int ret;
 	double *ptr;
-	const size_t data_set_entries = inc->num_ports * inc->num_ports * 2;
+	const size_t data_set_entries = (inc->state == PS_NOISE_DATA) ? 5 :
+			(inc->num_ports * inc->num_ports * 2);
 	double new_freq = inc->data_set[0];
 
 	if (inc->num_ports == 0 )
 		return SR_ERR;
 
+	sr_spew("adding data-set to sweep");
+
 	if ((ret = prepare_sweep_mem(inc)) != SR_OK)
 		return ret;
 
-	if (inc->sweep_count == 0)
-		inc->last_freq = new_freq;
-
-	if (inc->file_version == 1 && new_freq < inc->last_freq)
-		inc->state = PS_NOISE_DATA; /* start of noise data */
-
+	inc->sweep_freq[inc->sweep_count] = new_freq * inc->frequency_unit;
+	sr_spew("add sweep point at %f Hz", new_freq * inc->frequency_unit);
 	inc->last_freq = new_freq;
 
-	inc->sweep_freq[inc->sweep_count] = new_freq * inc->frequency_unit;
-	sr_spew("add sweep point at %f Hz", inc->frequency_unit);
-
 	ptr = &inc->sweep_data[inc->sweep_count*data_set_entries];
-	if (inc->matrix_format == MF_FULL)
-		memcpy(ptr, &inc->data_set[1],
-				(inc->num_vals_per_set-1) * sizeof(double));
-	else {
-		size_t idx = 1;
+	if (inc->state == PS_DATA_LINES) {
+		if (inc->matrix_format == MF_FULL) {
+			sr_spew("moving full matrix");
+			memcpy(ptr, &inc->data_set[1],
+					(inc->num_vals_per_set-1) * sizeof(double));
+		}
+		else {
+			size_t idx = 1;
+			if (inc->matrix_format == MF_UPPER) {
+				sr_spew("moving upper matrix");
+				for (size_t i = 0 ; i < inc->num_ports ; ++i) {
+					size_t row_len = 2 * (inc->num_ports - i);
+					size_t offs = i * (inc->num_ports + 1) * 2;
+					memcpy(ptr + offs, inc->data_set + idx,
+							row_len * sizeof(double));
+					idx += row_len;
+				}
+			}
+			else { /* (inc->matrix_format == MF_LOWER) { */
+				sr_spew("moving lower matrix");
+				for (size_t i = 0 ; i < inc->num_ports ; ++i) {
+					size_t row_len = 2 * (i+1);
+					size_t offs = i * inc->num_ports * 2;
+					memcpy(ptr + offs, inc->data_set + idx,
+							row_len * sizeof(double));
+					idx += row_len;
+				}
+			}
+		}
+
+		if (inc->number_format == FORMAT_DB_ANGLE)
+			conv_len(ptr, convdba, inc->num_vals_per_set/2);
+		else if (inc->number_format == FORMAT_MAGNITUDE_ANGLE)
+			conv_len(ptr, convma, inc->num_vals_per_set/2);
+		else /* FORMAT_REAL_IMAGINARY */
+			conv_len(ptr, convri, inc->num_vals_per_set/2);
+
 		if (inc->matrix_format == MF_UPPER)
-			for (size_t i = 0 ; i < inc->num_ports ; ++i) {
-				size_t row_len = 2 * (inc->num_ports - i);
-				size_t offs = i * (inc->num_ports + 1) * 2;
-				memcpy(ptr + offs, inc->data_set + idx,
-						row_len * sizeof(double));
-				idx += row_len;
-			}
-		else /* (inc->matrix_format == MF_LOWER) { */
-			for (size_t i = 0 ; i < inc->num_ports ; ++i) {
-				size_t row_len = 2 * (i+1);
-				size_t offs = i * inc->num_ports * 2;
-				memcpy(ptr + offs, inc->data_set + idx,
-						row_len * sizeof(double));
-				idx += row_len;
-			}
+			fill_lower(ptr, inc->num_ports);
+		else if(inc->matrix_format == MF_LOWER)
+			fill_upper(ptr, inc->num_ports);
+
+		if (inc->num_ports == 2 && inc->two_port_data_order == TP_ORDER_21_12)
+			swap21_12(ptr);
 	}
-
-	if (inc->number_format == OL_DB_ANGLE)
-		conv_len(ptr, convdba, inc->num_vals_per_set/2);
-	else if (inc->number_format == OL_MAGNITUDE_ANGLE)
-		conv_len(ptr, convma, inc->num_vals_per_set/2);
-	else /* OL_REAL_IMAGINARY */
-		conv_len(ptr, convri, inc->num_vals_per_set/2);
-
-	if (inc->matrix_format == MF_UPPER)
-		fill_lower(ptr, inc->num_ports);
-	else if(inc->matrix_format == MF_LOWER)
-		fill_upper(ptr, inc->num_ports);
-
-	if (inc->num_ports == 2 && inc->two_port_data_order == TP_ORDER_21_12)
-		swap21_12(ptr);
+	else
+	{
+		confNF2F(&inc->data_set[1]);
+		convma(&inc->data_set[2]); // reflection coefficient
+		memcpy(ptr, &inc->data_set[1], (inc->num_vals_per_set-1) * sizeof(double));
+		/* data_set[0] Frequency in units.
+		 * data_set[1] Minimum noise figure in dB.
+		 * data_set[2] Source reflection coefficient to realize minimum noise figure (MA).
+		 * data_set[3] Phase in degrees of the reflection coefficient (MA).
+		 * data_set[4] Normalized effective noise resistance.
+		 */
+	}
 
 	inc->sweep_count += 1;
 	inc->data_set_count = 0;
@@ -591,26 +662,33 @@ static int move_data_to_sweep(struct context *inc)
 	return SR_OK;
 }
 
-static int parse_data_line_numbers(char *line, double *vals, size_t *num_vals)
+static int parse_data_line_numbers(char *line, double **vals, size_t *num_vals)
 {
 	char **val_strings, *val_str;
-	size_t idx;
+	size_t idx, mum_splits;
 	int ret;
 
 	val_strings = g_strsplit(line, " ", 0);
 	*num_vals = 0;
+	*vals = NULL;
+	if ((mum_splits = g_strv_length(val_strings)) == 0)
+		return SR_OK;
+
+	*vals = g_malloc(sizeof(double) * mum_splits);
+	if (*vals == NULL)
+		return SR_ERR;
 
 	ret = SR_OK;
-	for (idx = 0 ; (val_str = val_strings[idx]) &&
-					*num_vals < MAX_VALS_PER_LINE ; ++idx) {
+	for (idx = 0 ; idx < mum_splits ; ++idx) {
+		val_str = val_strings[idx];
 		if (val_str[0] == '\0')
 			continue;
 		g_strchug(val_str);
-		if ((ret = sr_atod(val_str, vals + *num_vals)) != SR_OK) {
+		if ((ret = sr_atod(val_str, *vals + *num_vals)) != SR_OK) {
 			sr_err("failed parsing '%s' as number", val_str);
 			break;
 		}
-		sr_spew("parssed number '%f'", vals[*num_vals]);
+		sr_spew("parsed number %f", (*vals)[*num_vals]);
 		*num_vals += 1;
 	}
 	g_strfreev(val_strings);
@@ -628,45 +706,70 @@ static int calc_num_ports(struct context *inc)
 			inc->num_ports, inc->num_vals_per_set);
 		return SR_ERR;
 	}
+	sr_spew("calculated number of ports = %zu", inc->num_ports);
 	return SR_OK;
 }
 
 static int parse_data_line(struct sr_input *in, char *line)
 {
-	struct context *inc = in->priv;
 	int ret;
-	size_t num_vals;
-	double vals[MAX_VALS_PER_LINE];
+	double *vals;
+	struct context *inc = in->priv;
+	size_t num_vals = 0;
 
-	if ((ret = parse_data_line_numbers(line, vals, &num_vals)) != SR_OK)
+	if ((ret = parse_data_line_numbers(line, &vals, &num_vals)) != SR_OK)
 		return ret;
 
 	if (!num_vals)
 		return SR_OK;
 
+	ret = SR_OK;
 	if (inc->num_ports == 0 && inc->file_version == 1) {
 		if (inc->data_set_count && num_vals % 2) {
 			/* odd number of values -> contains a frequency ->
 			   this is new data set -> now we know the number of ports*/
-			if ((ret = calc_num_ports(inc)) != SR_OK)
-				return ret;
+			ret = calc_num_ports(inc);
 
-			if ((ret = send_reference_information(in)) != SR_OK)
-				return ret;
+			if (ret == SR_OK)
+				ret = send_reference_information(in);
+
+			if (ret == SR_OK)
+				ret = move_data_to_sweep(inc);
 		}
-		/* in case of one sweep point only we also have to check in end() */
+		/* in case of one sweep point only we need an
+		 * additional check during end() */
 	}
 
-	if ((ret = add_data_to_set(inc, vals, num_vals)) != SR_OK)
-		return ret;
+	if (ret == SR_OK)
+		ret = add_data_to_set(inc, vals, num_vals);
 
-	if (inc->num_vals_per_set) {
-		if (inc->data_set_count == inc->num_vals_per_set)
-			return move_data_to_sweep(inc);
+	g_free(vals);
+	vals = NULL;
+
+	if (inc->file_version == 1 && inc->state == PS_DATA_LINES && ret == SR_OK) {
+		if (inc->sweep_count && inc->data_set_count) {
+			if (inc->last_freq >= inc->data_set[0]) {
+				sr_spew("start of noise data detected");
+				send_sweep_information(in);
+				inc->sweep_size = inc->sweep_size * inc->num_ports * inc->num_ports * 2 / 5;
+				inc->state = PS_NOISE_DATA; /* start of noise data */
+				inc->num_vals_per_set = 5;
+			}
+		}
 	}
-	return SR_OK;
+
+	if (ret == SR_OK && inc->num_vals_per_set) {
+		if (inc->data_set_count > inc->num_vals_per_set)
+			/* A new data has to start (with frequency value) on a new line
+			 * but until now he had more data than expected in the last data-set
+			 */
+			sr_warn("more data than expected in the last data-set");
+		if (inc->data_set_count >= inc->num_vals_per_set) {
+			ret = move_data_to_sweep(inc);
+		}
+	}
+	return ret;
 }
-
 
 static char *fwd_to(char *line, const char *word)
 {
@@ -697,7 +800,7 @@ static int parse_references(struct sr_input *in, char *line)
 		ret = sr_atod(val_str, inc->reference_resistances + *num_refs);
 		if (ret != SR_OK) {
 			g_strfreev(val_strings);
-			return ret;
+	 		return ret;
 		}
 		*num_refs += 1;
 	}
@@ -719,7 +822,9 @@ static int parse_key_line(struct sr_input *in, char *line)
 	if ((ptr = fwd_to(line, "[NUMBER OF PORTS]"))) {
 		if ((ret = sr_atoi(ptr, &ival)) != SR_OK)
 			return ret;
+        sr_spew("numper of ports set = %d", ival);
 		inc->num_ports = ival;
+		inc->num_vals_per_set = ival * ival * 2 + 1;
 	}
 	else if ((ptr = fwd_to(line, "[TWO-PORT ORDER]"))) {
 		if (g_strstr_len(ptr, -1, "12_21"))
@@ -756,20 +861,28 @@ static int parse_key_line(struct sr_input *in, char *line)
 	else if ((ptr = fwd_to(line, "[MATRIX FORMAT]"))) {
 		if (!inc->num_ports)
 			return SR_ERR;
-		if (g_strstr_len(ptr, -1, "FULL"))
+		if (g_strstr_len(ptr, -1, "FULL")) {
 			inc->matrix_format = MF_FULL;
-		else if (g_strstr_len(ptr, -1, "LOWER"))
+			sr_spew("matrix format is: FULL");
+		}
+		else if (g_strstr_len(ptr, -1, "LOWER")) {
 			inc->matrix_format = MF_LOWER;
-		else if (g_strstr_len(ptr, -1, "UPPER"))
+			sr_spew("matrix format is: LOWER");
+		}
+		else if (g_strstr_len(ptr, -1, "UPPER")) {
 			inc->matrix_format = MF_UPPER;
+			sr_spew("matrix format is: UPPER");
+		}
 		else
 			return SR_ERR;
 		inc->num_vals_per_set = (inc->matrix_format == MF_FULL) ?
-			2 * inc->num_ports * inc->num_ports + 1 :			 /* 2*n^2+1 */
+			2 * inc->num_ports * inc->num_ports + 1 :             /* 2*n^2+1 */
 			inc->num_ports * inc->num_ports + inc->num_ports + 1; /* n^2+n+1 */
+        sr_spew("values per set is %zu", inc->num_vals_per_set);
 	}
 	else if ((ptr = fwd_to(line, "[MIXED-MODE ORDER]"))) {
-			/// TODO
+		sr_err("Mixed mode parameters are not supported");
+		return SR_ERR;
 	}
 	else if ((ptr = fwd_to(line, "[BEGIN INFORMATION]"))) {
 		inc->state = PS_SKIP_INFO;
@@ -833,13 +946,23 @@ static int process_line(struct sr_input *in, char *line)
 		break;
 	case PS_DATA_LINES:
 		if (line[0] == '[' && fwd_to(line, "[NOISE DATA]")) {
+			if (inc->num_ports != 2) {
+				sr_err("Noise data only allowed for two port networks");
+				return SR_ERR;
+			}
+			send_sweep_information(in);
+			inc->sweep_size = inc->sweep_size * inc->num_ports * inc->num_ports * 2 / 5;
 			inc->state = PS_NOISE_DATA;
+			inc->num_vals_per_set = 5;
+			return SR_OK;
+		}
+		/* fall through */
+	case PS_NOISE_DATA:
+		if (line[0] == '[' && fwd_to(line, "[END]")) {
+			send_sweep_information(in);
 			return SR_OK;
 		}
 		return parse_data_line(in, line);
-	case PS_NOISE_DATA:
-		return parse_data_line(in, line);
-		break;
 	}
 
 	return SR_OK;
@@ -856,6 +979,7 @@ static int process_buffer(struct sr_input *in, gboolean is_eof)
 	if (!inc->started) {
 		std_session_send_df_header(in->sdi);
 		inc->started = TRUE;
+		std_session_send_df_frame_begin(in->sdi);
 	}
 
 	if (!in->buf->len)
@@ -932,7 +1056,10 @@ static int end(struct sr_input *in)
 	}
 
 	if (ret == SR_OK)
+	//(inc->state == PS_DATA_LINES || inc->state == PS_NOISE_DATA)) {
 		ret = send_sweep_information(in);
+
+	std_session_send_df_frame_end(in->sdi);
 
 	if (inc->started)
 		std_session_send_df_end(in->sdi);
