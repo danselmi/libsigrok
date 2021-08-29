@@ -765,6 +765,11 @@ enum sr_configkey {
 	 */
 	SR_CONF_FREQUENCY_COUNTER,
 
+	/**
+	 * The device can act as a spectrum analyzer.
+	 */
+	SR_CONF_SPECTRUM_ANALYZER,
+
 	/* Update sr_key_info_config[] (hwdriver.c) upon changes! */
 
 	/*--- Driver scan options -------------------------------------------*/
@@ -1155,6 +1160,41 @@ enum sr_configkey {
 	 * @arg set: set @b true to invert the signal
 	 */
 	SR_CONF_INVERTED,
+
+	/** preset device to defined state */
+	SR_CONF_PRESET,
+
+	/** Span specifies band center frequency (between start and stop).
+	 * @arg type double (Hz)
+	 * @arg set: change span. Adjusts also start and stop frequency.
+	 * @arg list: Supported frequency range as (low, high, step)
+	 */
+	SR_CONF_BAND_CENTER_FREQUENCY,
+
+	/** Span specifies the range between the start and stop frequencies.
+	 * @arg type double (Hz)
+	 * @arg set: change span. Adjusts also start and stop frequency.
+	 * @arg list: Supported frequency range as (low, high, step)
+	 */
+	SR_CONF_SPAN,
+
+	/** Specifies the bandwidth of the RF chain before the detector.
+	 * @arg type uint64 (Hz)
+	 * @arg list: Supported bandwidth range as (low, high, step)
+	 */
+	SR_CONF_RESOLUTION_BANDWIDTH,
+
+	/** Specifies the bandwidth of the signal chain after the detector.
+	 * @arg type uint64 (Hz)
+	 * @arg list: Supported bandwidth range as (low, high, step)
+	 */
+	SR_CONF_VIDEO_BANDWIDTH,
+
+	/** Specifies the reference level.
+	 * @arg type: double (dBm)
+	 * @arg list: Supported reference level range as (low, high, step)
+	 */
+	SR_CONF_REF_LEVEL,
 
 	/* Update sr_key_info_config[] (hwdriver.c) upon changes! */
 
