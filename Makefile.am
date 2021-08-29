@@ -646,6 +646,12 @@ src_libdrivers_la_SOURCES += \
 	src/hardware/rigol-ds/protocol.c \
 	src/hardware/rigol-ds/api.c
 endif
+if HW_ROHDE_SCHWARZ_FSW_AND_FSV
+src_libdrivers_la_SOURCES += \
+	src/hardware/rohde-schwarz-fsw-and-fsv/protocol.h \
+	src/hardware/rohde-schwarz-fsw-and-fsv/protocol.c \
+	src/hardware/rohde-schwarz-fsw-and-fsv/api.c
+endif
 if HW_ROHDE_SCHWARZ_SME_0X
 src_libdrivers_la_SOURCES += \
 	src/hardware/rohde-schwarz-sme-0x/protocol.h \
