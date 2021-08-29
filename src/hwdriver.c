@@ -66,6 +66,7 @@ static struct sr_key_info sr_key_info_config[] = {
 	{SR_CONF_MULTIPLEXER, SR_T_STRING, NULL, "Multiplexer", NULL},
 	{SR_CONF_DELAY_GENERATOR, SR_T_STRING, NULL, "Delay generator", NULL},
 	{SR_CONF_FREQUENCY_COUNTER, SR_T_STRING, NULL, "Frequency counter", NULL},
+	{SR_CONF_SPECTRUM_ANALYZER, SR_T_STRING, NULL, "Spectrum analyzer", NULL},
 
 	/* Driver scan options */
 	{SR_CONF_CONN, SR_T_STRING, "conn",
@@ -220,6 +221,18 @@ static struct sr_key_info sr_key_info_config[] = {
 		"Over-current protection delay", NULL},
 	{SR_CONF_INVERTED, SR_T_BOOL, "inverted",
 		"Signal inverted", NULL},
+	{SR_CONF_PRESET, SR_T_BOOL, "preset",
+		"Preset device to defined state", NULL},
+	{SR_CONF_BAND_CENTER_FREQUENCY, SR_T_FLOAT, "band_center_frequency",
+		"Band center frequency", NULL},
+	{SR_CONF_SPAN, SR_T_FLOAT, "span",
+		"Frequency span", NULL},
+	{SR_CONF_RESOLUTION_BANDWIDTH, SR_T_UINT64, "rbw",
+		"Resolution bandwidth", NULL},
+	{SR_CONF_VIDEO_BANDWIDTH, SR_T_UINT64, "vbw",
+		"Video bandwidth", NULL},
+	{SR_CONF_REF_LEVEL, SR_T_FLOAT, "ref_level",
+		"Reference level", NULL},
 
 	/* Special stuff */
 	{SR_CONF_SESSIONFILE, SR_T_STRING, "sessionfile",
