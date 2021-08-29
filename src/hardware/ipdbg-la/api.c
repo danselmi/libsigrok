@@ -109,9 +109,9 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 	ipdbg_la_get_features(tcp, devc);
 	ipdbg_la_get_addrwidth_and_datawidth(tcp, devc);
 
-	sr_dbg("addr_width = %d, data_width = %d\n", devc->addr_width,
+	sr_info("addr_width = %d, data_width = %d\n", devc->addr_width,
 		devc->data_width);
-	sr_dbg("limit samples = %" PRIu64 "\n", devc->limit_samples_max);
+	sr_info("limit samples = %" PRIu64 "\n", devc->limit_samples_max);
 
 	ipdbg_la_set_channel_names_and_groups(sdi);
 
