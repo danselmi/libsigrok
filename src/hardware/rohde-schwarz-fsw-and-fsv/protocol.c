@@ -646,3 +646,43 @@ SR_PRIV int rs_fsw_and_fsv_receive_data(int fd, int revents, void *cb_data)
 	return TRUE;
 }
 
+SR_PRIV int rs_fsw_and_fsv_cmd_set(const struct sr_dev_inst *sdi, const char *cmd)
+{
+	int ret;
+	struct sr_scpi_dev_inst *scpi;
+	struct dev_context *devc;
+
+	if (!(scpi = sdi->conn) || !(devc = sdi->priv))
+		return SR_ERR;
+
+	g_mutex_lock(&devc->rw_mutex);
+	ret = sr_scpi_send(scpi, cmd);
+	g_mutex_unlock(&devc->rw_mutex);
+
+	return ret;
+}
+
+SR_PRIV int rs_fsw_and_fsv_cmd_req(const struct sr_dev_inst *sdi, const char *cmd)
+{
+	int ret;
+	struct sr_scpi_dev_inst *scpi;
+	struct dev_context *devc;
+
+	if (!(scpi = sdi->conn) || !(devc = sdi->priv))
+		return SR_ERR;
+
+	if (devc->received_cmd_str)
+		g_free(devc->received_cmd_str);
+	devc->received_cmd_str = NULL;
+
+	ret = SR_OK;
+	g_mutex_lock(&devc->rw_mutex);
+	if ((ret = sr_scpi_get_string(scpi, cmd, &devc->received_cmd_str)) != SR_OK)
+		sr_spew("rs_fsw_and_fsv_cmd_req::sr_scpi_get_string() failed!");
+	g_mutex_unlock(&devc->rw_mutex);
+
+	return ret;
+}
+
+
+

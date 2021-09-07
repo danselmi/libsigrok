@@ -28,6 +28,7 @@ static struct sr_dev_driver rohde_schwarz_fsw_and_fsv_driver_info;
 static const char *manufacturer = "Rohde&Schwarz";
 
 static const char *device_models[] = {
+	"FSV-3",
 	"FSV-4",
 	"FSV-7",
 	"FSV-13",
@@ -113,6 +114,9 @@ static const uint32_t devopts[] = {
 	SR_CONF_REF_LEVEL             | SR_CONF_GET | SR_CONF_SET | SR_CONF_LIST,
 
 	SR_CONF_EXTERNAL_CLOCK_SOURCE | SR_CONF_GET | SR_CONF_SET | SR_CONF_LIST,
+
+	SR_CONF_COMMAND_SET           | SR_CONF_SET,
+	SR_CONF_COMMAND_REQ           | SR_CONF_GET | SR_CONF_SET
 };
 
 static const char *clock_sources[] = {
@@ -256,6 +260,9 @@ static int dev_close(struct sr_dev_inst *sdi)
 
 	rs_fsw_and_fsv_local(sdi);
 
+	if (devc->received_cmd_str)
+		g_free(devc->received_cmd_str);
+
 	if (devc) {
 		if(devc->vals)
 			g_free(devc->vals);
@@ -305,6 +312,13 @@ static int config_get(uint32_t key, GVariant **data,
 	case SR_CONF_EXTERNAL_CLOCK_SOURCE:
 		*data = g_variant_new_string(clock_sources[devc->clk_source_idx]);
 		break;
+	case SR_CONF_COMMAND_REQ:
+		if (devc->received_cmd_str) {
+			*data = g_variant_new_string(devc->received_cmd_str);
+			break;
+		}
+		ret = SR_ERR_NA;
+		break;
 	default:
 		return SR_ERR_NA;
 	}
@@ -318,7 +332,7 @@ static int config_set(uint32_t key, GVariant *data,
 	int ret;
 	size_t i;
 	struct dev_context *devc;
-	const char *clksrc_str;
+	const char *str_param;
 	uint64_t uival;
 	double dval;
 	(void)cg;
@@ -353,12 +367,20 @@ static int config_set(uint32_t key, GVariant *data,
 		ret = rs_fsw_and_fsv_set_vbw(sdi, uival);
 		break;
 	case SR_CONF_EXTERNAL_CLOCK_SOURCE:
-		clksrc_str = g_variant_get_string(data, NULL);
+		str_param = g_variant_get_string(data, NULL);
 		for (i = 0; i < ARRAY_SIZE(clock_sources); i++)
-			if (g_strcmp0(clock_sources[i], clksrc_str) == 0) {
+			if (g_strcmp0(clock_sources[i], str_param) == 0) {
 				ret = rs_fsw_and_fsv_set_clk_src(sdi, i);
 				break;
 			}
+		break;
+	case SR_CONF_COMMAND_SET:
+		str_param = g_variant_get_string(data, NULL);
+		ret = rs_fsw_and_fsv_cmd_set(sdi, str_param);
+		break;
+	case SR_CONF_COMMAND_REQ:
+		str_param = g_variant_get_string(data, NULL);
+		ret = rs_fsw_and_fsv_cmd_req(sdi, str_param);
 		break;
 	default:
 		ret = SR_ERR_NA;

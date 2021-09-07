@@ -49,6 +49,7 @@ struct dev_context {
 	size_t num_rbws;
 	const uint64_t *vbws;
 	size_t num_vbws;
+	char *received_cmd_str;
 };
 
 SR_PRIV int rs_fsw_and_fsv_receive_data(int fd, int revents, void *cb_data);
@@ -79,6 +80,10 @@ SR_PRIV int rs_fsw_and_fsv_set_vbw(const struct sr_dev_inst *sdi, uint64_t vbw);
 SR_PRIV int rs_fsw_and_fsv_set_ref_level(const struct sr_dev_inst *sdi,
             double ref_level);
 SR_PRIV int rs_fsw_and_fsv_set_clk_src(const struct sr_dev_inst *sdi, size_t idx);
+
+
+SR_PRIV int rs_fsw_and_fsv_cmd_set(const struct sr_dev_inst *sdi, const char *cmd);
+SR_PRIV int rs_fsw_and_fsv_cmd_req(const struct sr_dev_inst *sdi, const char *cmd);
 
 #endif
 
