@@ -119,6 +119,12 @@ static struct unit_mq_string mq_strings[] = {
 	{ SR_MQFLAG_REFERENCE, " REF" },
 	{ SR_MQFLAG_UNSTABLE, " UNSTABLE" },
 	{ SR_MQFLAG_FOUR_WIRE, " 4-WIRE" },
+	{ SR_MQFLAG_N_PORT_S_PARAMETER, " S-Parameters" },
+	{ SR_MQFLAG_N_PORT_Z_PARAMETER, " Z-Parameters" },
+	{ SR_MQFLAG_N_PORT_Y_PARAMETER, " Y-Parameters" },
+	{ SR_MQFLAG_TWO_PORT_G_PARAMETER, " G-Parameters" },
+	{ SR_MQFLAG_TWO_PORT_H_PARAMETER, " H-Parameters" },
+	{ SR_MQFLAG_TWO_PORT_NOISE_DATA, " Noise data" },
 	ALL_ZERO
 };
 
