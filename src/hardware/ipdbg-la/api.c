@@ -64,6 +64,7 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 	const char *conn;
 	struct sr_config *src;
 	GSList *l;
+	uint8_t version;
 
 	conn = NULL;
 	for (l = options; l; l = l->next) {
@@ -91,30 +92,28 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 	ipdbg_la_send_reset(tcp);
 	ipdbg_la_send_reset(tcp);
 
-	if (ipdbg_la_request_id(tcp) != SR_OK)
+	if (ipdbg_la_request_id(tcp, &version) != SR_OK)
 		return NULL;
 
 	struct sr_dev_inst *sdi = g_malloc0(sizeof(struct sr_dev_inst));
 	sdi->status = SR_ST_INACTIVE;
 	sdi->vendor = g_strdup("ipdbg.org");
 	sdi->model = g_strdup("IPDBG LA");
-	sdi->version = g_strdup("v1.0");
+	sdi->version = g_strdup_printf("v1.%d", version);
 	sdi->driver = di;
 
 	struct dev_context *devc = ipdbg_la_dev_new();
 	sdi->priv = devc;
+	devc->version = version;
 
+	ipdbg_la_get_features(tcp, devc);
 	ipdbg_la_get_addrwidth_and_datawidth(tcp, devc);
 
 	sr_dbg("addr_width = %d, data_width = %d\n", devc->addr_width,
 		devc->data_width);
 	sr_dbg("limit samples = %" PRIu64 "\n", devc->limit_samples_max);
 
-	for (uint32_t i = 0; i < devc->data_width; i++) {
-		char *name = g_strdup_printf("CH%d", i);
-		sr_channel_new(sdi, i, SR_CHANNEL_LOGIC, TRUE, name);
-		g_free(name);
-	}
+	ipdbg_la_set_channel_names_and_groups(sdi);
 
 	sdi->inst_type = SR_INST_USER;
 	sdi->conn = tcp;

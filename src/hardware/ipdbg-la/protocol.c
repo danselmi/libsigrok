@@ -63,6 +63,14 @@
 /* LA subfunction command opcodes */
 #define CMD_LA_DELAY               0x1F
 
+#define CMD_GET_FEATURES           0x10
+#define CMD_GET_RLC_WIDTH          0x60
+
+#define FEATURE_AUGMENTER_APP_ENABLED   0x00000001
+#define FEATURE_RUNLENGTH_CODER_ENABLED 0x00000002
+
+static const uint8_t host_word_size = 8;
+
 static gboolean data_available(struct ipdbg_la_tcp *tcp)
 {
 #ifdef _WIN32
@@ -279,6 +287,87 @@ SR_PRIV int ipdbg_la_convert_trigger(const struct sr_dev_inst *sdi)
 	return SR_OK;
 }
 
+static int ipdbg_la_runlength_decode(struct dev_context *devc,
+	uint64_t *delay_value, uint64_t *total_samples)
+{
+	if (devc->runlength_code_width == 0) {
+		*delay_value = devc->delay_value;
+		*total_samples = devc->limit_samples;
+		return TRUE;
+	}
+
+	uint8_t *raw_sample_buffer = devc->raw_sample_buf;
+	const uint64_t total_raw_samples = devc->limit_samples;
+	const uint64_t raw_delay_value = devc->delay_value;
+
+	*delay_value = 0;
+	*total_samples = 0;
+
+	uint32_t raw_data_width_bytes =
+		(devc->data_width + devc->runlength_code_width + host_word_size - 1) /
+		host_word_size;
+	uint32_t data_width_bytes =
+		(devc->data_width + host_word_size - 1) / host_word_size;
+	const uint32_t runlength_count_mask =
+		(uint32_t)((1ull << devc->runlength_code_width) - 1);
+	const uint32_t runlength_code_width_bytes =
+		(devc->runlength_code_width + host_word_size - 1) / host_word_size;
+
+	uint32_t *repeats = g_malloc(total_raw_samples * sizeof(uint32_t));
+	if (!repeats) {
+		sr_err("repeat counters malloc failed");
+		return FALSE;
+	}
+	for (uint64_t i = 0; i < total_raw_samples; ++i) {
+		repeats[i] = 0;
+		for (size_t byte = 0; byte < runlength_code_width_bytes; ++byte)
+			repeats[i] |= (uint32_t)(*(raw_sample_buffer +
+				i * raw_data_width_bytes + byte)) <<
+					(byte * host_word_size);
+		repeats[i] &= runlength_count_mask;
+		repeats[i] += 1;
+		*total_samples += repeats[i];
+		if (i < raw_delay_value)
+			*delay_value += repeats[i];
+	}
+
+	uint8_t *run_buffer = g_try_malloc(*total_samples * data_width_bytes);
+	if (!run_buffer) {
+		g_free(repeats);
+		sr_err("decoded sample buffer malloc failed.");
+		return FALSE;
+	}
+	devc->raw_sample_buf = run_buffer;
+
+	for (size_t i = 0; i < total_raw_samples; ++i) {
+		for (size_t byte = 0; byte < data_width_bytes; ++byte) {
+			uint16_t buffer = 0;
+			if (devc->runlength_code_width % host_word_size)
+			{
+				buffer = *(raw_sample_buffer + i * raw_data_width_bytes +
+					runlength_code_width_bytes - 1 + byte);
+				if (byte < (raw_data_width_bytes - 1))
+					buffer |= *(raw_sample_buffer + i * raw_data_width_bytes +
+						runlength_code_width_bytes + byte) << 8;
+
+				buffer = buffer >>
+					(devc->runlength_code_width % host_word_size);
+			} else {
+				buffer = *(raw_sample_buffer + i * raw_data_width_bytes +
+					runlength_code_width_bytes + byte);
+			}
+			*run_buffer++ = buffer & 0x00ff;
+		}
+		for (uint32_t rep = 1; rep < repeats[i]; ++rep) {
+			memcpy(run_buffer, run_buffer - data_width_bytes, data_width_bytes);
+			run_buffer += data_width_bytes;
+		}
+	}
+	g_free(repeats);
+	g_free(raw_sample_buffer);
+	return TRUE;
+}
+
 SR_PRIV int ipdbg_la_receive_data(int fd, int revents, void *cb_data)
 {
 	const struct sr_dev_inst *sdi;
@@ -298,40 +387,52 @@ SR_PRIV int ipdbg_la_receive_data(int fd, int revents, void *cb_data)
 	struct sr_datafeed_packet packet;
 	struct sr_datafeed_logic logic;
 
+	uint32_t raw_data_width_bytes =
+		(devc->data_width + devc->runlength_code_width + host_word_size - 1) /
+		host_word_size;
+
 	if (!devc->raw_sample_buf) {
 		devc->raw_sample_buf =
-			g_try_malloc(devc->limit_samples * devc->data_width_bytes);
+			g_try_malloc(devc->limit_samples * raw_data_width_bytes);
 		if (!devc->raw_sample_buf) {
 			sr_err("Sample buffer malloc failed.");
 			return FALSE;
 		}
 	}
-
 	if (devc->num_transfers <
-		(devc->limit_samples_max * devc->data_width_bytes)) {
-		const size_t bufsize = 1024;
+		(devc->limit_samples_max * raw_data_width_bytes)) {
+		const size_t bufsize = 1024*16;
 		uint8_t buffer[bufsize];
 
 		const int recd = ipdbg_la_tcp_receive(tcp, buffer, bufsize);
-		if ( recd > 0) {
+		if (recd > 0) {
 			int num_move = (((devc->num_transfers + recd) <=
-							 (devc->limit_samples * devc->data_width_bytes))
+							 (devc->limit_samples * raw_data_width_bytes))
 			?
 				recd
 			:
-				(int)((devc->limit_samples * devc->data_width_bytes) -
+				(int)((devc->limit_samples * raw_data_width_bytes) -
 						devc->num_transfers));
-			if ( num_move > 0 )
+			if (num_move > 0)
 				memcpy(&(devc->raw_sample_buf[devc->num_transfers]),
 						buffer, num_move);
 			devc->num_transfers += recd;
+
 		}
 	} else {
-		if (devc->delay_value > 0) {
-			/* There are pre-trigger samples, send those first. */
+		uint64_t delay_value;
+		uint64_t total_samples;
+		if (!ipdbg_la_runlength_decode(devc, &delay_value, &total_samples)) {
+			g_free(devc->raw_sample_buf);
+			devc->raw_sample_buf = NULL;
+			return FALSE;
+		}
+
+		if (delay_value > 0) {
+			/* There are pre-trigger samples, send these first. */
 			packet.type = SR_DF_LOGIC;
 			packet.payload = &logic;
-			logic.length = devc->delay_value * devc->data_width_bytes;
+			logic.length = delay_value * devc->data_width_bytes;
 			logic.unitsize = devc->data_width_bytes;
 			logic.data = devc->raw_sample_buf;
 			sr_session_send(cb_data, &packet);
@@ -343,11 +444,11 @@ SR_PRIV int ipdbg_la_receive_data(int fd, int revents, void *cb_data)
 		/* Send post-trigger samples. */
 		packet.type = SR_DF_LOGIC;
 		packet.payload = &logic;
-		logic.length = (devc->limit_samples - devc->delay_value) *
+		logic.length = (total_samples - delay_value) *
 			devc->data_width_bytes;
 		logic.unitsize = devc->data_width_bytes;
 		logic.data = devc->raw_sample_buf +
-			(devc->delay_value * devc->data_width_bytes);
+			(delay_value * devc->data_width_bytes);
 		sr_session_send(cb_data, &packet);
 
 		g_free(devc->raw_sample_buf);
@@ -385,7 +486,8 @@ static int send_escaping(struct ipdbg_la_tcp *tcp, uint8_t *data_to_send,
 SR_PRIV int ipdbg_la_send_delay(struct dev_context *devc,
 	struct ipdbg_la_tcp *tcp)
 {
-	devc->delay_value = ((devc->limit_samples - 1) / 100.0) * devc->capture_ratio;
+	devc->delay_value = ((devc->limit_samples - 1) / 100.0) *
+		devc->capture_ratio;
 
 	uint8_t buf;
 	buf = CMD_CFG_LA;
@@ -495,8 +597,6 @@ SR_PRIV void ipdbg_la_get_addrwidth_and_datawidth(
 	devc->addr_width |= (buf[6] << 16) & 0x00FF0000;
 	devc->addr_width |= (buf[7] << 24) & 0xFF000000;
 
-	const uint8_t host_word_size = 8;
-
 	devc->data_width_bytes =
 		(devc->data_width + host_word_size - 1) / host_word_size;
 	devc->addr_width_bytes =
@@ -510,6 +610,81 @@ SR_PRIV void ipdbg_la_get_addrwidth_and_datawidth(
 	devc->trigger_mask_last = g_malloc0(devc->data_width_bytes);
 	devc->trigger_value_last = g_malloc0(devc->data_width_bytes);
 	devc->trigger_edge_mask = g_malloc0(devc->data_width_bytes);
+}
+
+static void ipdbg_la_init_runlength_coding(
+	struct ipdbg_la_tcp *tcp, struct dev_context *devc)
+{
+
+	if (!(devc->features & FEATURE_RUNLENGTH_CODER_ENABLED)) {
+		devc->runlength_code_width = 0;
+		return;
+	}
+
+	uint8_t buf[1];
+	uint8_t features_cmd = CMD_GET_RLC_WIDTH;
+
+	if (tcp_send(tcp, &features_cmd, 1) != SR_OK) {
+		sr_warn("Can't send get runlength counter width command");
+		devc->runlength_code_width = 0;
+		return;
+	}
+
+	if (tcp_receive_blocking(tcp, buf, 1) != 1) {
+		sr_warn("Can't get runlength counter width from device");
+		devc->runlength_code_width = 0;
+		return;
+	}
+
+	devc->runlength_code_width = buf[0];
+}
+
+static void idpbg_la_init_features(
+	struct ipdbg_la_tcp *tcp, struct dev_context *devc)
+{
+	ipdbg_la_init_runlength_coding(tcp, devc);
+}
+
+SR_PRIV void ipdbg_la_get_features(
+	struct ipdbg_la_tcp *tcp, struct dev_context *devc)
+{
+	uint8_t buf[4];
+	uint8_t features_cmd = CMD_GET_FEATURES;
+
+	if (devc->version == 0) {
+		devc->features = 0;
+		return;
+	}
+
+	if (tcp_send(tcp, &features_cmd, 1) != SR_OK) {
+		sr_warn("Can't send get features command");
+		devc->features = 0;
+		return;
+	}
+
+	if (tcp_receive_blocking(tcp, buf, 4) != 4) {
+		sr_warn("Can't get features from device");
+		devc->features = 0;
+		return;
+	}
+
+	devc->features = buf[0] & 0x000000FF;
+	devc->features |= (buf[1] << 8) & 0x0000FF00;
+	devc->features |= (buf[2] << 16) & 0x00FF0000;
+	devc->features |= (buf[3] << 24) & 0xFF000000;
+
+	idpbg_la_init_features(tcp, devc);
+}
+
+SR_PRIV void ipdbg_la_set_channel_names_and_groups(
+	struct sr_dev_inst *sdi)
+{
+	struct dev_context *devc = sdi->priv;
+	for (uint32_t i = 0; i < devc->data_width; i++) {
+		char *name = g_strdup_printf("CH%d", i);
+		sr_channel_new(sdi, i, SR_CHANNEL_LOGIC, TRUE, name);
+		g_free(name);
+	}
 }
 
 SR_PRIV struct dev_context *ipdbg_la_dev_new(void)
@@ -531,7 +706,7 @@ SR_PRIV int ipdbg_la_send_reset(struct ipdbg_la_tcp *tcp)
 	return SR_OK;
 }
 
-SR_PRIV int ipdbg_la_request_id(struct ipdbg_la_tcp *tcp)
+SR_PRIV int ipdbg_la_request_id(struct ipdbg_la_tcp *tcp, uint8_t *version)
 {
 	uint8_t buf = CMD_GET_LA_ID;
 	if (tcp_send(tcp, &buf, 1) != SR_OK)
@@ -543,11 +718,14 @@ SR_PRIV int ipdbg_la_request_id(struct ipdbg_la_tcp *tcp)
 		return SR_ERR;
 	}
 
-	if (strncmp(id, "IDBG", 4)) {
-		sr_err("Invalid device ID: expected 'IDBG', got '%c%c%c%c'.",
+	int cmp_IDBG = strncmp(id, "IDBG", 4);
+	int cmp_idbg = strncmp(id, "idbg", 4);
+	if (!cmp_IDBG && !cmp_idbg) {
+		sr_err("Invalid device ID: expected 'idbg' or 'IDBG', got '%c%c%c%c'.",
 			id[0], id[1], id[2], id[3]);
 		return SR_ERR;
 	}
+	*version = (cmp_IDBG == 0) ? 0 : 1;
 
 	return SR_OK;
 }

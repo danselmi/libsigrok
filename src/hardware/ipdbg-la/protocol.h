@@ -39,6 +39,7 @@ struct dev_context {
 	uint32_t data_width_bytes;
 	uint32_t addr_width;
 	uint32_t addr_width_bytes;
+	uint32_t features;
 
 	uint64_t limit_samples;
 	uint64_t limit_samples_max;
@@ -51,7 +52,9 @@ struct dev_context {
 	uint64_t delay_value;
 	int num_stages;
 	uint64_t num_transfers;
+	uint8_t version;
 	uint8_t *raw_sample_buf;
+	uint8_t runlength_code_width;
 };
 
 SR_PRIV struct ipdbg_la_tcp *ipdbg_la_tcp_new(void);
@@ -67,7 +70,7 @@ SR_PRIV struct dev_context *ipdbg_la_dev_new(void);
 SR_PRIV void ipdbg_la_get_addrwidth_and_datawidth(
 	struct ipdbg_la_tcp *tcp, struct dev_context *devc);
 SR_PRIV int ipdbg_la_send_reset(struct ipdbg_la_tcp *tcp);
-SR_PRIV int ipdbg_la_request_id(struct ipdbg_la_tcp *tcp);
+SR_PRIV int ipdbg_la_request_id(struct ipdbg_la_tcp *tcp, uint8_t *version);
 SR_PRIV int ipdbg_la_send_start(struct ipdbg_la_tcp *tcp);
 SR_PRIV int ipdbg_la_send_trigger(struct dev_context *devc,
 	struct ipdbg_la_tcp *tcp);
@@ -75,5 +78,7 @@ SR_PRIV int ipdbg_la_send_delay(struct dev_context *devc,
 	struct ipdbg_la_tcp *tcp);
 SR_PRIV int ipdbg_la_receive_data(int fd, int revents, void *cb_data);
 SR_PRIV void ipdbg_la_abort_acquisition(const struct sr_dev_inst *sdi);
-
+SR_PRIV void ipdbg_la_set_channel_names_and_groups(struct sr_dev_inst *sdi);
+SR_PRIV void ipdbg_la_get_features(
+	struct ipdbg_la_tcp *tcp, struct dev_context *devc);
 #endif
