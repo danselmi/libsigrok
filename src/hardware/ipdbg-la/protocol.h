@@ -41,6 +41,7 @@ struct dev_context {
 	uint32_t addr_width_bytes;
 	uint32_t features;
 
+	uint64_t cur_samplerate;
 	uint64_t limit_samples;
 	uint64_t limit_samples_max;
 	uint8_t capture_ratio;
@@ -79,6 +80,9 @@ SR_PRIV int ipdbg_la_send_delay(struct dev_context *devc,
 SR_PRIV int ipdbg_la_receive_data(int fd, int revents, void *cb_data);
 SR_PRIV void ipdbg_la_abort_acquisition(const struct sr_dev_inst *sdi);
 SR_PRIV void ipdbg_la_set_channel_names_and_groups(struct sr_dev_inst *sdi);
+SR_PRIV void ipdbg_la_set_samplerate(struct sr_dev_inst *sdi);
 SR_PRIV void ipdbg_la_get_features(
 	struct ipdbg_la_tcp *tcp, struct dev_context *devc);
+SR_PRIV void ipdb_la_channel_new_default_name(struct sr_dev_inst *sdi, int i);
+SR_PRIV void ipdb_la_set_default_channel_names(struct sr_dev_inst *sdi);
 #endif

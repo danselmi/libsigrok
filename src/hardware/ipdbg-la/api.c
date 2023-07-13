@@ -32,6 +32,7 @@ static const uint32_t devopts[] = {
 	SR_CONF_TRIGGER_MATCH | SR_CONF_LIST,
 	SR_CONF_CAPTURE_RATIO | SR_CONF_GET | SR_CONF_SET,
 	SR_CONF_LIMIT_SAMPLES | SR_CONF_GET | SR_CONF_SET,
+	SR_CONF_SAMPLERATE    | SR_CONF_GET | SR_CONF_SET,
 };
 
 static const int32_t trigger_matches[] = {
@@ -113,10 +114,11 @@ static GSList *scan(struct sr_dev_driver *di, GSList *options)
 		devc->data_width);
 	sr_dbg("limit samples = %" PRIu64 "\n", devc->limit_samples_max);
 
-	ipdbg_la_set_channel_names_and_groups(sdi);
-
 	sdi->inst_type = SR_INST_USER;
 	sdi->conn = tcp;
+
+	ipdbg_la_set_channel_names_and_groups(sdi);
+	ipdbg_la_set_samplerate(sdi);
 
 	ipdbg_la_tcp_close(tcp);
 
@@ -181,6 +183,9 @@ static int config_get(uint32_t key, GVariant **data,
 	(void)cg;
 
 	switch (key) {
+	case SR_CONF_SAMPLERATE:
+		*data = g_variant_new_uint64(devc->cur_samplerate);
+		break;
 	case SR_CONF_CAPTURE_RATIO:
 		*data = g_variant_new_uint64(devc->capture_ratio);
 		break;

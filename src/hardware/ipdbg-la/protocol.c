@@ -35,8 +35,6 @@
 #include <errno.h>
 #include "protocol.h"
 
-#define BUFFER_SIZE 4
-
 /* Top-level command opcodes */
 #define CMD_SET_TRIGGER            0x00
 #define CMD_CFG_TRIGGER            0xF0
@@ -65,9 +63,14 @@
 
 #define CMD_GET_FEATURES           0x10
 #define CMD_GET_RLC_WIDTH          0x60
+#define CMD_GET_CHANNEL_NAMES      0x70
+#define CMD_GET_SAMPLE_RATE        0x80
 
-#define FEATURE_AUGMENTER_APP_ENABLED   0x00000001
-#define FEATURE_RUNLENGTH_CODER_ENABLED 0x00000002
+const uint32_t FEATURE_AUGMENTER_APP_ENABLED =          0x00000001;
+const uint32_t FEATURE_RUNLENGTH_CODER_ENABLED =        0x00000002;
+const uint32_t FEATURE_AUGMENTER_SAMPLERATE_ENABLED =   0x00000004;
+const uint32_t FEATURE_AUGMENTER_CH_NAMES_ENABLED =     0x00000008;
+
 
 static const uint8_t host_word_size = 8;
 
@@ -676,15 +679,103 @@ SR_PRIV void ipdbg_la_get_features(
 	idpbg_la_init_features(tcp, devc);
 }
 
-SR_PRIV void ipdbg_la_set_channel_names_and_groups(
-	struct sr_dev_inst *sdi)
+SR_PRIV void ipdb_la_channel_new_default_name(struct sr_dev_inst *sdi, int i)
+{
+	char *name = g_strdup_printf("CH%d", i);
+	sr_channel_new(sdi, i, SR_CHANNEL_LOGIC, TRUE, name);
+	g_free(name);
+}
+
+SR_PRIV void ipdb_la_set_default_channel_names(struct sr_dev_inst *sdi)
 {
 	struct dev_context *devc = sdi->priv;
-	for (uint32_t i = 0; i < devc->data_width; i++) {
-		char *name = g_strdup_printf("CH%d", i);
-		sr_channel_new(sdi, i, SR_CHANNEL_LOGIC, TRUE, name);
-		g_free(name);
+	const uint32_t number_of_channels = devc->data_width;
+
+	for (uint32_t i = 0; i < number_of_channels; i++)
+		ipdb_la_channel_new_default_name(sdi, i);
+}
+
+SR_PRIV void ipdbg_la_set_channel_names_and_groups(struct sr_dev_inst *sdi)
+{
+	struct dev_context *devc = sdi->priv;
+	struct ipdbg_la_tcp *tcp = sdi->conn;
+	uint8_t request_channel_names_cmd = CMD_GET_CHANNEL_NAMES;
+	const uint8_t number_of_channels = devc->data_width;
+
+	if (!(devc->features & FEATURE_AUGMENTER_CH_NAMES_ENABLED)) {
+		/* set default channel names */
+		ipdb_la_set_default_channel_names(sdi);
+		return;
 	}
+
+	if (tcp_send(tcp, &request_channel_names_cmd, 1) != SR_OK) {
+		sr_warn("Can't send cmd get channel names");
+		/* set default channel names */
+		ipdb_la_set_default_channel_names(sdi);
+		return;
+	}
+
+	if (tcp_send(tcp, &number_of_channels, 1) != SR_OK) {
+		sr_warn("Can't send number of channels");
+		/* set default channel names */
+		ipdb_la_set_default_channel_names(sdi);
+		return;
+	}
+
+	for (uint8_t i = 0; i < number_of_channels; i++) {
+		/* get channel name length */
+		uint8_t channel_name_lenght;
+		if (tcp_receive_blocking(tcp, &channel_name_lenght, 1) != 1) {
+			sr_warn("Can't get channel name length");
+			ipdb_la_channel_new_default_name(sdi, i);
+			continue;
+		}
+		/* get channel name */
+		char channel_name[channel_name_lenght + 1];
+		channel_name[channel_name_lenght] = '\0';
+		if (tcp_receive_blocking(tcp, (uint8_t*)channel_name,
+			channel_name_lenght) != channel_name_lenght) {
+			sr_warn("Can't get channel name of CH%d", i);
+			ipdb_la_channel_new_default_name(sdi, i);
+		}
+		else
+			sr_channel_new(sdi, i, SR_CHANNEL_LOGIC, TRUE, channel_name);
+	}
+	return;
+}
+
+SR_PRIV void ipdbg_la_set_samplerate(struct sr_dev_inst *sdi)
+{
+	struct dev_context *devc = sdi->priv;
+	struct ipdbg_la_tcp *tcp = sdi->conn;
+	const size_t buffer_size = 8;
+	uint8_t buf[buffer_size];
+	const uint8_t features_cmd = CMD_GET_SAMPLE_RATE;
+
+	/* no samplerate to set */
+	if (!(devc->features & FEATURE_AUGMENTER_SAMPLERATE_ENABLED))
+		return;
+
+	if (tcp_send(tcp, &features_cmd, 1) != SR_OK) {
+		sr_warn("Can't send cmd get sample rate");
+		/* no samplerate to set */
+		return;
+	}
+
+	if (tcp_receive_blocking(tcp, buf, buffer_size) != buffer_size) {
+		sr_warn("Can't receive sample rate");
+		/* no samplerate to set */
+		return;
+	}
+
+	devc->cur_samplerate  =  (uint64_t)buf[0]        & 0x00000000000000FF;
+	devc->cur_samplerate |= ((uint64_t)buf[1] <<  8) & 0x000000000000FF00;
+	devc->cur_samplerate |= ((uint64_t)buf[2] << 16) & 0x0000000000FF0000;
+	devc->cur_samplerate |= ((uint64_t)buf[3] << 24) & 0x00000000FF000000;
+	devc->cur_samplerate |= ((uint64_t)buf[4] << 32) & 0x000000FF00000000;
+	devc->cur_samplerate |= ((uint64_t)buf[5] << 40) & 0x0000FF0000000000;
+	devc->cur_samplerate |= ((uint64_t)buf[6] << 48) & 0x00FF000000000000;
+	devc->cur_samplerate |= ((uint64_t)buf[7] << 56) & 0xFF00000000000000;
 }
 
 SR_PRIV struct dev_context *ipdbg_la_dev_new(void)
