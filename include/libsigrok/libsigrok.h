@@ -245,6 +245,8 @@ enum sr_mq {
 	SR_MQ_ENERGY,
 	/** Electric charge. */
 	SR_MQ_ELECTRIC_CHARGE,
+	/** N-Port parameter set. */
+	SR_MQ_N_PORT_PARAMETER,
 
 	/* Update sr_key_info_mq[] (hwdriver.c) upon changes! */
 };
@@ -403,6 +405,13 @@ enum sr_mqflag {
 	SR_MQFLAG_UNSTABLE = 0x100000,
 	/** Measurement is four wire (e.g. Kelvin connection). */
 	SR_MQFLAG_FOUR_WIRE = 0x200000,
+	/** Measured parameters are S, Z, Y, G or H parameters */
+	SR_MQFLAG_N_PORT_S_PARAMETER = 0x400000,
+	SR_MQFLAG_N_PORT_Z_PARAMETER = 0x800000,
+	SR_MQFLAG_N_PORT_Y_PARAMETER = 0x1000000,
+	SR_MQFLAG_TWO_PORT_G_PARAMETER = 0x2000000,
+	SR_MQFLAG_TWO_PORT_H_PARAMETER = 0x4000000,
+	SR_MQFLAG_TWO_PORT_NOISE_DATA  = 0x8000000,
 
 	/*
 	 * Update mq_strings[] (analog.c) and fancyprint() (output/analog.c)
@@ -764,6 +773,10 @@ enum sr_configkey {
 	 * The device can act as a frequency counter.
 	 */
 	SR_CONF_FREQUENCY_COUNTER,
+
+	/** The device can act as a network analyzer.
+	 */
+	SR_CONF_NETWORK_ANALYZER,
 
 	/* Update sr_key_info_config[] (hwdriver.c) upon changes! */
 
@@ -1155,6 +1168,41 @@ enum sr_configkey {
 	 * @arg set: set @b true to invert the signal
 	 */
 	SR_CONF_INVERTED,
+
+	/** preset device to defined state */
+	SR_CONF_PRESET,
+
+	/** Span specifies band center frequency (between start and stop).
+	 * @arg type double (Hz)
+	 * @arg set: change span. Adjusts also start and stop frequency.
+	 * @arg list: Supported frequency range as (low, high, step)
+	 */
+	SR_CONF_BAND_CENTER_FREQUENCY,
+
+	/** Span specifies the range between the start and stop frequencies.
+	 * @arg type double (Hz)
+	 * @arg set: change span. Adjusts also start and stop frequency.
+	 * @arg list: Supported frequency range as (low, high, step)
+	 */
+	SR_CONF_SPAN,
+
+	/** Specifies the bandwidth of the RF chain before the detector.
+	 * @arg type uint64 (Hz)
+	 * @arg list: Supported bandwidth range as (low, high, step)
+	 */
+	SR_CONF_RESOLUTION_BANDWIDTH,
+
+	/** Specifies the bandwidth of the signal chain after the detector.
+	 * @arg type uint64 (Hz)
+	 * @arg list: Supported bandwidth range as (low, high, step)
+	 */
+	SR_CONF_VIDEO_BANDWIDTH,
+
+	/** Specifies the reference level.
+	 * @arg type: double (dBm)
+	 * @arg list: Supported reference level range as (low, high, step)
+	 */
+	SR_CONF_REF_LEVEL,
 
 	/* Update sr_key_info_config[] (hwdriver.c) upon changes! */
 
