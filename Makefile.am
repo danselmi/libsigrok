@@ -96,7 +96,8 @@ libsigrok_la_SOURCES += \
 	src/input/vcd.c \
 	src/input/wav.c \
 	src/input/isf.c \
-	src/input/null.c
+	src/input/null.c \
+	src/input/touchstone.c
 if HAVE_INPUT_STF
 libsigrok_la_SOURCES += \
 	src/input/stf.c
