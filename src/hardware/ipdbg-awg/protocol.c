@@ -45,6 +45,9 @@
 #define SET_NUMBEROFSAMPLES_COMMAND 0xF4
 #define RETURN_ISRUNNING_COMMAND    0xF5
 
+#define WRITE_PROGRESS_RESPONSE     0xFA
+#define WRITE_DONE_RESPONSE         0xFB
+
 #define STR_WAVEFORM_DC        "DC"
 #define STR_WAVEFORM_SINE      "Sine"
 #define STR_WAVEFORM_RECTANGLE "Rectangle"
@@ -572,6 +575,24 @@ SR_PRIV int ipdbg_awg_update_waveform(const struct sr_dev_inst *sdi)
 	if (ret != SR_OK) {
 		sr_err("Can't send samples");
 		return ret;
+	}
+
+	/*
+	 * The core sends 0xFA every 64 bytes (some may be missing) and
+	 * 0xFB after the last sample.
+	 */
+	for (;;) {
+		if (ipdbg_awg_tcp_receive_blocking(tcp, buffer, 1) != 1) {
+			sr_err("No answer after writing the samples");
+			return SR_ERR;
+		}
+		if (buffer[0] == WRITE_DONE_RESPONSE)
+			break;
+		if (buffer[0] != WRITE_PROGRESS_RESPONSE) {
+			sr_err("Unexpected answer 0x%02x after writing the samples",
+				buffer[0]);
+			return SR_ERR;
+		}
 	}
 
 	if (was_running) {
