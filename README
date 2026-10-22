@@ -93,6 +93,12 @@ Requirements for the Java bindings:
  - doxygen (optional, only needed for the Java API docs)
  - graphviz (optional, only needed for the Java API docs)
 
+Requirements for the Octave bindings:
+
+ - libsigrokcxx >= 0.4.0 (the libsigrok C++ bindings, see above)
+ - SWIG >= 3.0.0
+ - GNU Octave >= 6.0 (including development files, i.e. mkoctfile)
+
 
 Building and installing
 -----------------------

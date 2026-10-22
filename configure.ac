@@ -424,6 +424,10 @@ AC_ARG_ENABLE([java],
 	[AS_HELP_STRING([--enable-java], [build Java bindings [default=yes]])],
 	[], [enable_java=$enable_bindings])
 
+AC_ARG_ENABLE([octave],
+	[AS_HELP_STRING([--enable-octave], [build Octave bindings [default=yes]])],
+	[], [enable_octave=$enable_bindings])
+
 ####################
 ##  C++ bindings  ##
 ####################
@@ -660,6 +664,41 @@ AS_IF([test -z "$sr_java_missing"],
 	[BINDINGS_JAVA=$enable_java], [BINDINGS_JAVA=no])
 AM_CONDITIONAL([BINDINGS_JAVA], [test "x$BINDINGS_JAVA" = xyes])
 
+######################
+##  Octave bindings ##
+######################
+
+sr_octave_missing=
+
+AS_IF([test "x$BINDINGS_CXX" = xyes],
+	[sr_octave_missing=],
+	[sr_octave_missing='C++ bindings'])
+
+# The Octave bindings need mkoctfile (part of Octave development package).
+AC_PATH_PROGS([MKOCTFILE], [mkoctfile], [])
+AS_IF([test "x$MKOCTFILE" = x],
+	[SR_APPEND([sr_octave_missing], [', '], [mkoctfile])])
+
+# Query Octave install directories via mkoctfile -p.
+# LOCALOCTFILEDIR  — arch-specific site dir for .oct modules (auto on $path)
+# LOCALFCNFILEDIR  — arch-independent site dir for .m files  (auto on $path)
+AS_IF([test "x$MKOCTFILE" != x], [
+	OCTAVE_OCT_SITE_DIR=`$MKOCTFILE -p LOCALOCTFILEDIR 2>/dev/null`
+	OCTAVE_M_SITE_DIR=`$MKOCTFILE -p LOCALFCNFILEDIR 2>/dev/null`
+])
+AC_SUBST([OCTAVE_OCT_SITE_DIR])
+AC_SUBST([OCTAVE_M_SITE_DIR])
+
+# The Octave bindings use SWIG (any version with -octave support >= 3.0).
+AS_IF([test "x$SWIG" = x],
+	[SR_APPEND([sr_octave_missing], [', '], [SWIG])],
+	[AS_VERSION_COMPARE($SWIG_VERSION, "3.0.0",
+		[SR_APPEND([sr_octave_missing], [', '], ['SWIG >= 3.0'])])])
+
+AS_IF([test -z "$sr_octave_missing"],
+	[BINDINGS_OCTAVE=$enable_octave], [BINDINGS_OCTAVE=no])
+AM_CONDITIONAL([BINDINGS_OCTAVE], [test "x$BINDINGS_OCTAVE" = xyes])
+
 ##############################
 ##  Finalize configuration  ##
 ##############################
@@ -717,7 +756,7 @@ m4_define([SR_PREPARE_BINDING_REPORT], [
 	test -z "$sr_$1_missing" || sr_report_$1=" (missing: $sr_$1_missing)"
 	test "x$enable_$1" = xyes || sr_report_$1=' (disabled)'
 ])
-m4_map_args([SR_PREPARE_BINDING_REPORT], [cxx], [python], [ruby], [java])
+m4_map_args([SR_PREPARE_BINDING_REPORT], [cxx], [python], [ruby], [java], [octave])
 
 cat >&AS_MESSAGE_FD <<_EOF
 
@@ -772,6 +811,7 @@ Enabled language bindings:
  - Python.......................... $BINDINGS_PYTHON$sr_report_python
  - Ruby............................ $BINDINGS_RUBY$sr_report_ruby
  - Java............................ $BINDINGS_JAVA$sr_report_java
+ - Octave.......................... $BINDINGS_OCTAVE$sr_report_octave
 
 _EOF
 

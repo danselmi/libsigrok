@@ -847,6 +847,11 @@ EXTRA_DIST = \
 	bindings/python/sigrok/core/__init__.py \
 	bindings/python/sigrok/core/classes.i \
 	bindings/ruby/classes.i \
+	bindings/octave/sigrok/core/classes.i \
+	bindings/octave/sigrok/core/std_set.i \
+	bindings/octave/sigrok_capture.m \
+	bindings/octave/sigrok_input.m \
+	bindings/octave/test_sigrok.m \
 	bindings/java/Doxyfile \
 	bindings/java/org/sigrok/core/classes/classes.i \
 	bindings/java/org/sigrok/core/interfaces/DatafeedCallback.java \
@@ -1125,6 +1130,68 @@ BUILD_EXTRA += java-build
 INSTALL_EXTRA += java-install
 UNINSTALL_EXTRA += java-uninstall
 CLEAN_EXTRA += java-clean
+
+endif
+
+if BINDINGS_OCTAVE
+
+ODIR  = bindings/octave/sigrok/core
+OBASE = bindings/octave
+OWRAP = $(ODIR)/sigrok_wrap.cxx
+OOCT  = $(ODIR)/sigrok.oct
+
+# Include paths for SWIG and mkoctfile: source tree headers + CXX bindings.
+octave_includes = \
+	-I$(srcdir)/$(ODIR) \
+	-I$(srcdir)/bindings \
+	-I$(srcdir)/include \
+	-I$(srcdir)/bindings/cxx/include \
+	-I$(srcdir)
+
+$(OWRAP): $(srcdir)/$(ODIR)/classes.i \
+		$(srcdir)/$(ODIR)/std_set.i \
+		bindings/swig/enums.i \
+		$(library_include_HEADERS) \
+		$(nodist_library_include_HEADERS) \
+		$(bindings_cxx_libsigrokcxx_la_include_HEADERS) \
+		$(nodist_bindings_cxx_libsigrokcxx_la_include_HEADERS)
+	$(AM_V_at)test -d $(ODIR) || $(MKDIR_P) $(ODIR)
+	$(AM_V_GEN)$(SWIG) -c++ -octave $(swig_defs) \
+		$(octave_includes) \
+		-o $@ $(srcdir)/$(ODIR)/classes.i
+
+$(OOCT): $(OWRAP) @ORDER@ bindings/cxx/libsigrokcxx.la
+	$(AM_V_GEN)$(MKOCTFILE) \
+		$(octave_includes) \
+		$(LIBSIGROKCXX_CFLAGS) \
+		-L$(abs_builddir)/.libs \
+		-L$(abs_builddir)/bindings/cxx/.libs \
+		-lsigrokcxx \
+		$(LIBSIGROKCXX_LIBS) \
+		$(SR_EXTRA_CXX_LIBS) \
+		-o $@ $(OWRAP)
+
+octave-build: $(OOCT)
+
+octave-install: $(OOCT)
+	$(INSTALL) -d $(DESTDIR)$(OCTAVE_OCT_SITE_DIR)
+	$(INSTALL_DATA) $(OOCT) $(DESTDIR)$(OCTAVE_OCT_SITE_DIR)/sigrok.oct
+	$(INSTALL) -d $(DESTDIR)$(OCTAVE_M_SITE_DIR)
+	$(INSTALL_DATA) $(srcdir)/$(OBASE)/sigrok_capture.m $(DESTDIR)$(OCTAVE_M_SITE_DIR)/sigrok_capture.m
+	$(INSTALL_DATA) $(srcdir)/$(OBASE)/sigrok_input.m $(DESTDIR)$(OCTAVE_M_SITE_DIR)/sigrok_input.m
+
+octave-uninstall:
+	-rm -f $(DESTDIR)$(OCTAVE_OCT_SITE_DIR)/sigrok.oct
+	-rm -f $(DESTDIR)$(OCTAVE_M_SITE_DIR)/sigrok_capture.m
+	-rm -f $(DESTDIR)$(OCTAVE_M_SITE_DIR)/sigrok_input.m
+
+octave-clean:
+	-$(AM_V_at)rm -f $(OOCT) $(OWRAP)
+
+BUILD_EXTRA += octave-build
+INSTALL_EXTRA += octave-install
+UNINSTALL_EXTRA += octave-uninstall
+CLEAN_EXTRA += octave-clean
 
 endif
 
