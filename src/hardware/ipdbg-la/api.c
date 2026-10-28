@@ -245,6 +245,8 @@ static int dev_acquisition_start(const struct sr_dev_inst *sdi)
 	ipdbg_la_send_trigger(devc, tcp);
 	ipdbg_la_send_delay(devc, tcp);
 
+	std_session_send_df_header(sdi);
+
 	/* If the device stops sending for longer than it takes to send a byte,
 	 * that means it's finished. But wait at least 100 ms to be safe.
 	 */
