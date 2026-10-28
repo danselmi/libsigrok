@@ -150,14 +150,28 @@ SR_PRIV int ipdbg_la_tcp_close(struct ipdbg_la_tcp *tcp)
 {
 	int ret = SR_OK;
 
+	if (tcp->socket < 0)
+		return SR_OK;
+
+	/*
+	 * Close gracefully: shut down the sending side and wait (at most 2 s)
+	 * until the peer has closed its side. The IPDBG JTAG host in OpenOCD
+	 * serves one connection per core; without waiting, the connection that
+	 * dev_open() makes right after scan() is rejected.
+	 */
 #ifdef _WIN32
+	DWORD timeout = 2000;
 	if (shutdown(tcp->socket, SD_SEND) != SOCKET_ERROR) {
-		char recvbuf[16];
-		int recvbuflen = 16;
-		/* Receive until the peer closes the connection. */
-		while (recv(tcp->socket, recvbuf, recvbuflen, 0) > 0);
-	}
+#else
+	struct timeval timeout = { .tv_sec = 2, .tv_usec = 0 };
+	if (shutdown(tcp->socket, SHUT_WR) == 0) {
 #endif
+		char recvbuf[16];
+		setsockopt(tcp->socket, SOL_SOCKET, SO_RCVTIMEO,
+			(const char *)&timeout, sizeof(timeout));
+		/* Receive until the peer closes the connection. */
+		while (recv(tcp->socket, recvbuf, sizeof(recvbuf), 0) > 0);
+	}
 	if (close(tcp->socket) < 0)
 		ret = SR_ERR;
 
